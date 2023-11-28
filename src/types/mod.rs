@@ -23,20 +23,12 @@ pub struct Block {
 
 impl Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // let timestamp = OffsetDateTime::from_unix_timestamp(self.timestamp)
-        //     .expect("convert timestamp error")
-        //     .time();
+        let timestamp =
+            OffsetDateTime::from_unix_timestamp(self.timestamp).expect("convert timestamp error");
+        writeln!(f, "Time: {}", timestamp)?;
         writeln!(f, "Prev. hash: {}", hex::encode(self.prev_block_hash))?;
         writeln!(f, "Data: {}", String::from_utf8_lossy(&self.data))?;
         writeln!(f, "Hash: {}", hex::encode(self.hash))
-        // write!(
-        //     f,
-        //     "Block[timestamp: {}, data: {}, prev_block_hash: {}, hash: {}]",
-        //     timestamp,
-        //     String::from_utf8_lossy(&self.data),
-        //     hex::encode(self.prev_block_hash),
-        //     hex::encode(self.hash)
-        // )
     }
 }
 

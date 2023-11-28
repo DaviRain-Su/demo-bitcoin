@@ -13,21 +13,25 @@
 
 不过，我们要实现的是一个简化版的区块链，而不是一个像比特币技术规范所描述那样成熟完备的区块链。所以在我们目前的实现中，区块仅包含了部分关键信息，它的数据结构如下：
 
-```go
-type Block struct {
-	Timestamp     int64
-	Data          []byte
-	PrevBlockHash []byte
-	Hash          []byte
+```rust
+pub struct Block {
+    /// 当前时间戳，也就是区块创建的时间
+    pub timestamp: i64,
+    /// 区块存储的实际有效信息，也就是交易
+    pub data: Vec<u8>,
+    /// 前一个块的哈希，即父哈希
+    pub prev_block_hash: Hash,
+    /// 当前块的哈希
+    pub hash: Hash,
 }
 ```
 
 字段            | 解释
 :----:          | :----
-`Timestamp`     | 当前时间戳，也就是区块创建的时间
-`PrevBlockHash` | 前一个块的哈希，即父哈希
-`Hash`          | 当前块的哈希
-`Data`          | 区块存储的实际有效信息，也就是交易
+`timestamp`     | 当前时间戳，也就是区块创建的时间
+`prev_block_hash` | 前一个块的哈希，即父哈希
+`hash`          | 当前块的哈希
+`data`          | 区块存储的实际有效信息，也就是交易
 
 我们这里的 `Timestamp`，`PrevBlockHash`, `Hash`，在比特币技术规范中属于区块头（block header），区块头是一个单独的数据结构。
 完整的 [比特币的区块头（block header）结构](https://en.bitcoin.it/wiki/Block_hashing_algorithm) 如下：
@@ -86,25 +90,40 @@ transactions        | the (non empty) list of transactions         | <Transactio
 Hash = SHA256(PrevBlockHash + Timestamp + Data)
 ```
 
-在 `SetHash` 方法中完成这些操作：
+在 `hash` 方法中完成这些操作：
 
-```go
-func (b *Block) SetHash() {
-	timestamp := []byte(strconv.FormatInt(b.Timestamp, 10))
-	headers := bytes.Join([][]byte{b.PrevBlockHash, b.Data, timestamp}, []byte{})
-	hash := sha256.Sum256(headers)
-
-	b.Hash = hash[:]
+```rust
+/// 计算块的哈希
+pub fn hash(data: &[u8], prev_block_hash: &[u8], timestamp: i64) -> Hash {
+    let mut input = Vec::new();
+    input.extend_from_slice(prev_block_hash);
+    input.extend_from_slice(data);
+    input.extend_from_slice(&timestamp.to_be_bytes());
+    let mut hasher = Sha256::new();
+    hasher.update(input);
+    let hash_result = hasher.finalize().to_vec();
+    let mut hash = [0; 32];
+    hash.copy_from_slice(&hash_result);
+    hash
 }
 ```
 
-接下来，按照 Golang 的惯例，我们会实现一个用于简化创建区块的函数 `NewBlock`：
+接下来，按照 Rust 的惯例，我们会实现一个用于简化创建区块的函数 `new`：
 
-```go
-func NewBlock(data string, prevBlockHash []byte) *Block {
-	block := &Block{time.Now().Unix(), []byte(data), prevBlockHash, []byte{}}
-	block.SetHash()
-	return block
+```rust
+impl Block {
+    /// 创建新块时，需要把上一个块的哈希作为参数传进来
+    pub fn new(data: Vec<u8>, prev_block_hash: Hash) -> Self {
+        let now = OffsetDateTime::now_utc();
+        let timestamp = now.unix_timestamp();
+        let hash = Self::hash(&data, &prev_block_hash, timestamp);
+        Self {
+            timestamp,
+            data,
+            prev_block_hash,
+            hash,
+        }
+    }
 }
 ```
 
@@ -112,11 +131,12 @@ func NewBlock(data string, prevBlockHash []byte) *Block {
 
 有了区块，下面让我们来实现区块**链**。本质上，区块链就是一个有着特定结构的数据库，是一个有序，每一个块都连接到前一个块的链表。也就是说，区块按照插入的顺序进行存储，每个块都与前一个块相连。这样的结构，能够让我们快速地获取链上的最新块，并且高效地通过哈希来检索一个块。
 
-在 Golang 中，可以通过一个 array 和 map 来实现这个结构：array 存储有序的哈希（Golang 中 array 是有序的），map 存储 **hash -> block** 对(Golang 中, map 是无序的)。 但是在基本的原型阶段，我们只用到了 array，因为现在还不需要通过哈希来获取块。
+在 Rust 中，可以通过一个 array 和 map 来实现这个结构：array 存储有序的哈希，map 存储 **hash -> block** 对(Rust 中, map 是无序的)。 但是在基本的原型阶段，我们只用到了 array，因为现在还不需要通过哈希来获取块。
 
-```go
-type Blockchain struct {
-	blocks []*Block
+```rust
+pub struct Blockchain {
+    /// blocks
+    pub blocks: Vec<Block>,
 }
 ```
 
@@ -124,11 +144,13 @@ type Blockchain struct {
 
 现在，让我们能够给它添加一个区块：
 
-```go
-func (bc *Blockchain) AddBlock(data string) {
-	prevBlock := bc.blocks[len(bc.blocks)-1]
-	newBlock := NewBlock(data, prevBlock.Hash)
-	bc.blocks = append(bc.blocks, newBlock)
+```rust
+/// add block
+pub fn add_block(&mut self, data: String) -> Result<()> {
+    let prev_block = self.blocks.last().ok_or(anyhow::anyhow!("no block"))?;
+    let new_block = Block::new(data.as_bytes().to_vec(), prev_block.hash);
+    self.blocks.push(new_block);
+    Ok(())
 }
 ```
 
@@ -136,35 +158,37 @@ func (bc *Blockchain) AddBlock(data string) {
 
 为了加入一个新的块，我们必须要有一个已有的块，但是，初始状态下，我们的链是空的，一个块都没有！所以，在任何一个区块链中，都必须至少有一个块。这个块，也就是链中的第一个块，通常叫做创世块（**genesis block**）. 让我们实现一个方法来创建创世块：
 
-```go
-func NewGenesisBlock() *Block {
-	return NewBlock("Genesis Block", []byte{})
-}
+```rust
+/// genesis block
+let genesis_block = Block::new("Genesis Block".as_bytes().to_vec(), [0; 32]);
 ```
 
 现在，我们可以实现一个函数来创建有创世块的区块链：
 
-```go
-func NewBlockchain() *Blockchain {
-	return &Blockchain{[]*Block{NewGenesisBlock()}}
+```rust
+/// genesis block
+pub fn new_genesis_block() -> Self {
+    let genesis_block = Block::new("Genesis Block".as_bytes().to_vec(), [0; 32]);
+    Self {
+        blocks: vec![genesis_block],
+    }
 }
 ```
 
 检查一个我们的区块链是否如期工作：
 
-```go
-func main() {
-	bc := NewBlockchain()
+```rust
+/// Start the application.
+fn run(&self) {
+    let mut new_blockchain = Blockchain::new_genesis_block();
+    if let Err(e) = new_blockchain.add_block("Send 1 BTC to Ivan".into()) {
+        println!("Error: {}", e);
+    }
+    if let Err(e) = new_blockchain.add_block("Send 2 more BTC to Ivan".into()) {
+        println!("Error: {}", e);
+    }
 
-	bc.AddBlock("Send 1 BTC to Ivan")
-	bc.AddBlock("Send 2 more BTC to Ivan")
-
-	for _, block := range bc.blocks {
-		fmt.Printf("Prev. hash: %x\n", block.PrevBlockHash)
-		fmt.Printf("Data: %s\n", block.Data)
-		fmt.Printf("Hash: %x\n", block.Hash)
-		fmt.Println()
-	}
+    println!("{}", new_blockchain);
 }
 ```
 
@@ -188,13 +212,13 @@ Hash: 561237522bb7fcfbccbc6fe0e98bbbde7427ffe01c6fb223f7562288ca2295d1
 
 我们创建了一个非常简单的区块链原型：它仅仅是一个数组构成的一系列区块，每个块都与前一个块相关联。真实的区块链要比这复杂得多。在我们的区块链中，加入新的块非常简单，也很快，但是在真实的区块链中，加入新的块需要很多工作：你必须要经过十分繁重的计算（这个机制叫做工作量证明），来获得添加一个新块的权力。并且，区块链是一个分布式数据库，并且没有单一决策者。因此，要加入一个新块，必须要被网络的其他参与者确认和同意（这个机制叫做共识（consensus））。还有一点，我们的区块链还没有任何的交易！
 
-进入 src 目录查看代码，执行 `make` 即可运行：
+进入 demo-bitcoin 目录查看代码，执行 `cargo run -- run` 即可运行：
 
 ```bash
-$ cd src
-$ make
-==> Go build
-==> Running
+$ cd demo-bitcoin
+$ cargo run -- run
+    Finished dev [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/demo-bitcoin run`
 Prev. hash:
 Data: Genesis Block
 Hash: 4693b71eee96760de4b0f051083376dcbed2f0711a44294ee5fd42fbeacc9579
@@ -227,6 +251,3 @@ Transaction  | counter positive integer VI = VarInt         | 1 - 9 bytes
 transactions | the (non empty) list of transactions         | <Transaction counter>-many transactions
 
 ----
-
-- 上一节: [区块](basic-prototype.md)
-- 下一节: [工作量证明](../part-2/proof-of-work.md)
