@@ -10,9 +10,11 @@
 //! See the `impl Configurable` below for how to specify the path to the
 //! application's configuration file.
 
+mod calc_hash;
 mod run;
 mod start;
 
+use self::calc_hash::CalcHashCmd;
 use self::run::RunCmd;
 use self::start::StartCmd;
 use crate::config::DemoBitcoinConfig;
@@ -30,6 +32,8 @@ pub enum DemoBitcoinCmd {
     Start(StartCmd),
     /// The `run` subcommand
     Run(RunCmd),
+    /// The `calc-hash` subcommand
+    CalcHash(CalcHashCmd),
 }
 
 /// Entry point for the application. It needs to be a struct to allow using subcommands!
@@ -86,6 +90,7 @@ impl Configurable<DemoBitcoinConfig> for EntryPoint {
         match &self.cmd {
             DemoBitcoinCmd::Start(cmd) => cmd.override_config(config),
             DemoBitcoinCmd::Run(cmd) => cmd.override_config(config),
+            DemoBitcoinCmd::CalcHash(cmd) => cmd.override_config(config),
             //
             // If you don't need special overrides for some
             // subcommands, you can just use a catch all

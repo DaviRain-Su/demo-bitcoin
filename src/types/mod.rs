@@ -2,6 +2,7 @@
 
 use std::fmt::Display;
 
+use crate::pow::ProofOfWork;
 use anyhow::Result;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
@@ -9,6 +10,7 @@ use time::OffsetDateTime;
 /// demo bitcoin hash
 pub type Hash = [u8; 32];
 
+#[derive(Debug, Clone)]
 /// demo Bitcoin block
 pub struct Block {
     /// 当前时间戳，也就是区块创建的时间
@@ -19,16 +21,20 @@ pub struct Block {
     pub prev_block_hash: Hash,
     /// 当前块的哈希
     pub hash: Hash,
+    /// nonce
+    pub nonce: i64,
 }
 
 impl Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let timestamp =
             OffsetDateTime::from_unix_timestamp(self.timestamp).expect("convert timestamp error");
+        let pow = ProofOfWork::new(self.clone());
         writeln!(f, "Time: {}", timestamp)?;
         writeln!(f, "Prev. hash: {}", hex::encode(self.prev_block_hash))?;
         writeln!(f, "Data: {}", String::from_utf8_lossy(&self.data))?;
-        writeln!(f, "Hash: {}", hex::encode(self.hash))
+        writeln!(f, "Hash: {}", hex::encode(self.hash))?;
+        writeln!(f, "PoW: {}", pow.validate())
     }
 }
 
@@ -37,13 +43,20 @@ impl Block {
     pub fn new(data: Vec<u8>, prev_block_hash: Hash) -> Self {
         let now = OffsetDateTime::now_utc();
         let timestamp = now.unix_timestamp();
-        let hash = Self::hash(&data, &prev_block_hash, timestamp);
-        Self {
+        let mut block = Block {
             timestamp,
             data,
             prev_block_hash,
-            hash,
-        }
+            hash: [0; 32],
+            nonce: 0,
+        };
+
+        let pow = ProofOfWork::new(block.clone());
+        let (nonce, hash) = pow.run();
+
+        block.hash = hash;
+        block.nonce = nonce;
+        block
     }
 
     /// 计算块的哈希
